@@ -1,0 +1,973 @@
+{
+  "name": "vscode-openai",
+  "displayName": "vscode-openai",
+  "description": "vscode-openai seamlessly incorporates OpenAI features into VSCode, providing integration with SCM, Code Editor and Chat.",
+  "version": "1.6.15",
+  "publisher": "AndrewButson",
+  "icon": "images/logo_128x128.png",
+  "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/arbs-io/vscode-openai.git"
+  },
+  "sponsor": {
+    "url": "https://github.com/sponsors/arbs-io"
+  },
+  "engines": {
+    "vscode": "^1.81.0"
+  },
+  "categories": [
+    "Other",
+    "Machine Learning",
+    "Programming Languages",
+    "Data Science",
+    "Testing"
+  ],
+  "workspaces": [
+    "webview/conversations",
+    "webview/message"
+  ],
+  "scripts": {
+    "build": "yarn workspaces run build && node ./utilities/scripts/copy-wasm.js",
+    "vscode:prepublish": "yarn esbuild-base --minify",
+    "esbuild-base": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --target=es2020",
+    "esbuild": "yarn esbuild-base --sourcemap",
+    "esbuild-watch": "yarn esbuild-base -- --sourcemap --watch",
+    "compile": "tsc -p ./",
+    "deploy": "vsce publish --yarn",
+    "clean": "node ./utilities/scripts/clean.js"
+  },
+  "devDependencies": {
+    "@types/crypto-js": "^4.2.2",
+    "@types/node": "^22.13.5",
+    "@types/uuid": "^10.0.0",
+    "@types/vscode": "^1.81.0",
+    "@vscode/vsce": "^3.2.2",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.7.3"
+  },
+  "dependencies": {
+    "@arbs.io/asset-extractor-wasm": "^0.1.3",
+    "@vscode/extension-telemetry": "^0.9.8",
+    "crypto-js": "^4.2.0",
+    "openai": "^4.85.4",
+    "uuid": "^11.1.0"
+  },
+  "extensionDependencies": [
+    "vscode.git"
+],
+  "keywords": [
+    "ai",
+    "chatgpt",
+    "codex",
+    "copilot",
+    "gpt",
+    "gpt3",
+    "gpt4",
+    "openai",
+    "azureopenai",
+    "azure-openai",
+    "azure",
+    "testing"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "browser": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "vscode-openai-log"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "vscode-openai-log",
+        "scopeName": "vscode-openai.log",
+        "path": "./assets/log.tmLanguage.json"
+      }
+    ],
+    "icons": {
+      "vscode-openai": {
+        "description": "vscode-openai",
+        "default": {
+          "fontPath": "./assets/vscode-openai.woff",
+          "fontCharacter": "\\E900"
+        }
+      }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "vscode-openai-sidebar-view",
+          "title": "vscode-openai",
+          "icon": "./assets/openai-sidebar.svg",
+          "when": "vscode-openai.extension.enabled"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "vscode-openai.embeddings.view.sidebar",
+        "contents": "To utilize the Query Resources feature, it is necessary to register (or re-register) with the OpenAI service provider. This will enable you to select from a variety of embedding models.\n\nSupported file types (DOCX, HTML, TEXT and MARKDOWN), support for PDF will be added soon.\n\nPlease note that this particular feature is exclusively available with the native and Azure OpenAI services, and unfortunately, it is not provided by the vscode-openai service.\n[Setup OpenAI Provider](command:vscode-openai.configuration.show.quickpick)",
+        "when": "vscode-openai.embedding.setup-required"
+      }
+    ],
+    "views": {
+      "vscode-openai-sidebar-view": [
+        {
+          "type": "webview",
+          "id": "vscode-openai.conversations.view.sidebar",
+          "name": "Conversations",
+          "icon": "./assets/openai-sidebar.svg",
+          "contextualTitle": "vscode-openai conversations",
+          "when": "vscode-openai.extension.enabled"
+        },
+        {
+          "id": "vscode-openai.embeddings.view.sidebar",
+          "name": "Query Resources",
+          "icon": "./assets/openai-sidebar.svg",
+          "contextualTitle": "vscode-openai conversations",
+          "when": "vscode-openai.embedding.enabled"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "vscode-openai",
+      "properties": {
+        "vscode-openai.serviceProvider": {
+          "type": "string",
+          "default": "OpenAI",
+          "markdownDescription": "The service provider for OpenAI. If Microsoft Azure then instance name must be updated in `#vscode-openai.baseUrl#`.",
+          "enum": [
+            "VSCode-OpenAI",
+            "OpenAI",
+            "Azure-OpenAI",
+            "CredalAI",
+            "Custom-OpenAI"
+          ],
+          "enumDescriptions": [
+            "Use VSCode-OpenAI Sponsored service",
+            "Use OpenAI native service (https://api.openai.com)",
+            "Use Azure OpenAI service (https://instance-name.openai.azure.com/openai)."
+          ],
+          "order": 101
+        },
+        "vscode-openai.authentication": {
+          "type": "string",
+          "default": "ApiKey",
+          "markdownDescription": "The type of authentication used by the service.",
+          "enum": [
+            "ApiKey"
+          ],
+          "enumDescriptions": [
+            "Use OpenAI API keys for authentication. Visit your API Keys page to retrieve the API key you'll use in your requests."
+          ],
+          "order": 102
+        },
+        "vscode-openai.baseUrl": {
+          "type": "string",
+          "default": "https://api.openai.com/v1",
+          "markdownDescription": "The base url for the OpenAI service dependencies on `#vscode-openai.serviceProvider#`.\n- `OpenAI` then default `https://api.openai.com/v1`\n- `openai.azure.com` then default `https://<instance-name>.openai.azure.com/openai`",
+          "format": "url",
+          "description": "Specifies the base url for the openai service.",
+          "order": 103
+        },
+        "vscode-openai.defaultModel": {
+          "type": "string",
+          "default": "setup-required",
+          "description": "Specifies the default openai model.",
+          "order": 104
+        },
+        "vscode-openai.azureDeployment": {
+          "type": "string",
+          "default": "setup-required",
+          "markdownDescription": "The name of the Azure deployment (model). Only applies when `#vscode-openai.serviceProvider#` is `Azure-OpenAI`.",
+          "format": "url",
+          "description": "Specifies the base url for the openai service.",
+          "order": 105
+        },
+        "vscode-openai.embeddingModel": {
+          "type": "string",
+          "default": "setup-required",
+          "description": "Specifies the default openai model for embedding resources.",
+          "order": 106
+        },
+        "vscode-openai.scmModel": {
+          "type": "string",
+          "default": "setup-required",
+          "description": "Specifies the openai model for scm commit comments.",
+          "order": 106
+        },
+        "vscode-openai.embeddingModel.show-welcome": {
+          "type": "boolean",
+          "default": true,
+          "description": "Display welcome panel for embedding.",
+          "order": 107
+        },
+        "vscode-openai.embeddingsDeployment": {
+          "type": "string",
+          "default": "setup-required",
+          "markdownDescription": "The name of the Azure deployment (model). Only applies when `#vscode-openai.serviceProvider#` is `Azure-OpenAI`.",
+          "format": "url",
+          "description": "Specifies the base url for the openai service.",
+          "order": 108
+        },
+        "vscode-openai.scmDeployment": {
+          "type": "string",
+          "default": "setup-required",
+          "markdownDescription": "The name of the Azure deployment (model). Only applies when `#vscode-openai.serviceProvider#` is `Azure-OpenAI`.",
+          "format": "url",
+          "description": "Specifies the base url for the openai service.",
+          "order": 108
+        },
+        "vscode-openai.azureApiVersion": {
+          "type": "string",
+          "default": "2024-06-01",
+          "markdownDescription": "The api version used by Azure deployment (model). Only applies when `#vscode-openai.serviceProvider#` is `Azure-OpenAI`. Note: limited to versions that support chat completion.",
+          "enum": [
+            "2024-06-01"
+          ],
+          "enumDescriptions": [
+            "The initial azure api that support chat completion."
+          ],
+          "order": 109
+        },
+        "vscode-openai.logLevel": {
+          "type": "string",
+          "default": "Info",
+          "markdownDescription": "The output level for vscode-openai.",
+          "enum": [
+            "Debug",
+            "Info",
+            "Error"
+          ],
+          "enumDescriptions": [
+            "Debug messages for fine-grained events within vscode-openai",
+            "Information messages about the progress of vscode-openai and external services",
+            "Error messages for events that could potentially cause issues for vscode-openai"
+          ],
+          "order": 110
+        },
+        "vscode-openai.conversation-configuration.colors": {
+          "type": "object",
+          "order": 201,
+          "default": {
+            "lightUserColor": "#424242",
+            "lightUserBackground": "#f0f0f0",
+            "lightAssistantColor": "#107c10",
+            "lightAssistantBackground": "#f1faf1",
+            "darkUserColor": "#d6d6d6",
+            "darkUserBackground": "#0a0a0a",
+            "darkAssistantColor": "#9fd89f",
+            "darkAssistantBackground": "#052505"
+          },
+          "properties": {
+            "lightUserColor": {
+              "type": "string",
+              "description": "The `dark` mode color of the `User` text in the conversation view",
+              "pattern": "^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$"
+            },
+            "lightUserBackground": {
+              "type": "string",
+              "description": "The `dark` mode color of the `User` background in the conversation view",
+              "pattern": "^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$"
+            },
+            "lightAssistantColor": {
+              "type": "string",
+              "description": "The `dark` mode color of the `Assistant` text in the conversation view",
+              "pattern": "^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$"
+            },
+            "lightAssistantBackground": {
+              "type": "string",
+              "description": "The `dark` mode color of the `Assistant` background in the conversation view",
+              "pattern": "^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$"
+            },
+            "darkUserColor": {
+              "type": "string",
+              "description": "The `dark` mode color of the `User` text in the conversation view",
+              "pattern": "^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$"
+            },
+            "darkUserBackground": {
+              "type": "string",
+              "description": "The `dark` mode color of the `User` background in the conversation view",
+              "pattern": "^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$"
+            },
+            "darkAssistantColor": {
+              "type": "string",
+              "description": "The `dark` mode color of the `Assistant` text in the conversation view",
+              "pattern": "^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$"
+            },
+            "darkAssistantBackground": {
+              "type": "string",
+              "description": "The `dark` mode color of the `Assistant` background in the conversation view",
+              "pattern": "^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$"
+            }
+          },
+          "scope": "application",
+          "markdownDescription": "Customise the look and feels of vscode-openai **conversation**. This setting allows you to change `colors` in the message window."
+        },
+        "vscode-openai.conversation-configuration.temperature": {
+          "type": "number",
+          "default": 0.2,
+          "minimum": 0,
+          "maximum": 2,
+          "markdownDescription": "What sampling **temperature** to use. Higher values like 0.8 will make the output more random, while lower values like 0.2 will make it more focused and deterministic. Value must range between (0.0 - 2.0)",
+          "order": 211
+        },
+        "vscode-openai.conversation-configuration.presence-penalty": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 2,
+          "markdownDescription": "Positive values `penalize new tokens` based on whether they **appear in the text so far**, increasing the model's likelihood to talk about new topics. Value must range between (0.0 - 2.0)",
+          "order": 212
+        },
+        "vscode-openai.conversation-configuration.top-p": {
+          "type": "number",
+          "default": 1,
+          "minimum": 0,
+          "maximum": 1,
+          "markdownDescription": "An alternative to sampling with temperature, called nucleus sampling, where the model considers the results of the tokens with top_p probability mass. So 0.1 means only the tokens comprising the top 10% probability mass are considered.",
+          "order": 212
+        },
+        "vscode-openai.conversation-configuration.max-tokens": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "markdownDescription": "The maximum number of tokens that can be generated in the chat completion. Note that 0 will be set to max value.",
+          "order": 212
+        },
+        "vscode-openai.conversation-configuration.frequency-penalty": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 2,
+          "markdownDescription": "Positive values `penalize new tokens` based on their **existing frequency in the text so far**, decreasing the model's likelihood to repeat the same line verbatim. Value must range between (0.0 - 2.0)",
+          "order": 213
+        },
+        "vscode-openai.conversation-configuration.number-of-attempts": {
+          "type": "integer",
+          "default": 20,
+          "minimum": 5,
+          "maximum": 30,
+          "markdownDescription": "The number of retries if request has been rate-limited (http-429). Value must range between (5 - 30)",
+          "order": 214
+        },
+        "vscode-openai.conversation-configuration.history": {
+          "type": "number",
+          "default": 6,
+          "markdownDescription": "The number of previous messages sent to the current prompt.",
+          "minimum": 0,
+          "maximum": 128,
+          "order": 215
+        },
+        "vscode-openai.conversation-configuration.summary-max-length": {
+          "type": "number",
+          "default": 70,
+          "markdownDescription": "The maximum length of the `summarising messages` the conversation. Value must range between (50 - 250)",
+          "minimum": 50,
+          "maximum": 250,
+          "order": 221
+        },
+        "vscode-openai.conversation-configuration.summary-threshold": {
+          "type": "number",
+          "default": 5,
+          "markdownDescription": "The number of `messages` before **summarising** the conversation. Value must range between (3 - 12)",
+          "minimum": 3,
+          "maximum": 12,
+          "order": 222
+        },
+        "vscode-openai.conversation-configuration.api-headers": {
+          "type": "array",
+          "markdownDescription": "Provide additional header to be used within each api call. This property is an array of key-value pair for each header name and value.",
+          "items": {
+            "type": "object",
+            "title": "api_headers",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "The name of the custom api-header"
+              },
+              "value": {
+                "type": "string",
+                "description": "The value of the custom api-header"
+              }
+            }
+          },
+          "default": [],
+          "order": 231
+        },
+        "vscode-openai.conversation-configuration.message-shortcuts": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Enable keyboard shortcuts in the message input window (`Shift`+`Enter` && `Ctrl`+`ArrowUp`). You must use the send button if disabled.",
+          "order": 241
+        },
+        "vscode-openai.conversation-configuration.assistant-rules": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Enable assistant rules for conversation. If disabled raw prompt will be sent to the LLM",
+          "order": 242
+        },
+        "vscode-openai.editor.code.comment": {
+          "type": "string",
+          "default": "I am working with a program written in #{language} and need assistance in understanding its functionality. Please analyze the following source code and add detailed comments in plain text format, explaining what each part of the code is doing. The comments should be comprehensive and should help users understand the logic and functionality of the code.\n\nEnsure that the explanations and comments adhere strictly to the syntax and conventions of #{language}, and that they are integrated into the source code. The final output should be in a format that can be directly compiled or run in an environment supporting #{language}.\n\nHere is the source code that needs analysis and comments:\n```#{language}\n#{source_code}\n```",
+          "editPresentation": "multilineText",
+          "markdownDescription": "This prompt is designed to place inline comments into the `source code`\n- Author: **vscode-openai**",
+          "order": 301
+        },
+        "vscode-openai.editor.code.explain": {
+          "type": "string",
+          "default": "I need assistance in documenting a source code written in #{language}. Please analyze the provided code and add detailed header comments in plain text format. These comments should include a brief description of each function, the input parameters with their types, and the output parameters with their types. The response should be in a format suitable for direct use as a source file, adhering to the syntax and conventions of #{language}. The comments should help in understanding the code's functionality and structure.\n\nEnsure that the comments are comprehensive and that the final output is a complete, valid #{language} source code with the added comments.\n\nHere is the source code that needs the header comments:\n```#{language}\n#{source_code}\n```",
+          "editPresentation": "multilineText",
+          "markdownDescription": "This prompt is designed to place header comments for each class or function within the `source code`\n- Author: **Bryon Roscoe**",
+          "order": 302
+        },
+        "vscode-openai.editor.code.bounty": {
+          "type": "string",
+          "default": "I am experiencing issues with a segment of source code written in #{language} and require assistance in debugging and understanding it. Please analyze the provided code, identify any bugs, and provide fixes in a plain text format. Along with the corrections, add detailed comments explaining the nature of the original issues and how they were resolved.\n\nIt's important that the response adheres to the syntax and conventions of #{language} and that the final output is a complete, valid #{language} source code. The response should be suitable for direct compilation or execution in an environment supporting #{language}.\n\nHere is the source code that needs analysis, debugging, and commenting:\n```#{language}\n#{source_code}\n```",
+          "editPresentation": "multilineText",
+          "markdownDescription": "This prompt is designed to find and fix bugs within the `source code`\n- Author: **Ed Linden**",
+          "order": 303
+        },
+        "vscode-openai.editor.code.optimize": {
+          "type": "string",
+          "default": "I am working with a program written in #{language} and need assistance in optimizing its performance. Please analyze the provided source code and suggest optimizations to reduce the number of operations during execution. The optimizations should maintain the original functionality of the code.\n\nThe response should be in plain text format, suitable for direct use as a source file. It must strictly adhere to the syntax and conventions of #{language} and only include valid #{language} source code. The optimized code should be complete and ready for compilation or execution in a suitable environment.\n\nHere is the source code that needs optimization:\n```#{language}\n#{source_code}\n```",
+          "editPresentation": "multilineText",
+          "markdownDescription": "This prompt is designed to find inefficiencies and resolve them within the `source code`\n- Author: **vscode-openai**",
+          "order": 304
+        },
+        "vscode-openai.editor.code.optimizeFolder": {
+          "type": "string",
+          "default": "I am optimizing folder with a program written in #{language} and need assistance in optimizing its performance.\n\nHere is the source code that needs optimization:\n```#{language}\n#{source_code}\n```",
+          "editPresentation": "multilineText",
+          "markdownDescription": "This prompt is designed to find inefficiencies and resolve them within the `source code`\n- Author: **vscode-openai**",
+          "order": 304
+        },
+        "vscode-openai.editor.code.pattern": {
+          "type": "string",
+          "default": "I need assistance with programming in #{language}. Please analyze the provided source code and rewrite it to implement a combination of design patterns, including Concurrency, Behavioral, Structural, and Creational patterns. The rewritten code should be in plain text format, suitable for use as a source file, and should preserve the original functionality of the code. Adherence to #{language} syntax and conventions is essential, and the response should only include valid #{language} source code.\n\nHere is the source code for analysis and rewriting:\n```#{language}\n#{source_code}\n```",
+          "editPresentation": "multilineText",
+          "markdownDescription": "This prompt is designed to suggest design patterns to improve readability, maintainability, ... in the `source code`\n- Author: **vscode-openai**",
+          "order": 305
+        },
+        "vscode-openai.embedding-configuration.max-character-length": {
+          "type": "integer",
+          "default": 1200,
+          "minimum": 256,
+          "maximum": 2048,
+          "markdownDescription": "There are different methods for **chunking**, and each of them might be appropriate for resource `embedding`. Value must range between (256 - 2048)",
+          "order": 401
+        },
+        "vscode-openai.embedding-configuration.cosine-similarity-threshold": {
+          "type": "number",
+          "default": 0.72,
+          "minimum": 0.5,
+          "maximum": 1,
+          "markdownDescription": "**Cosine similarity** measures the `cosine` of the angle between two vectors projected in a `multi-dimensional space`. Value must range between (0.5 - 1.0)",
+          "order": 402
+        },
+        "vscode-openai.prompts.persona.scm": {
+          "type": "string",
+          "default": "Given the following git diff information, please provide a brief summary of the changes.\n- Each line MUST be LESS than 50 characters.\n- The summary MUST include important aspects of the modifications.\n- The comments MUST be in plain text format, suitable for human readable.\nUse the following format:\n🟢 [file name] for new files\n🛠️ [file name] -> [brief description of change] for modified files\n🔴 [file name] for deleted files\nThe Git diff to summarise is below:",
+          "editPresentation": "multilineText",
+          "markdownDescription": "This prompt is designed as **scm** helper for git comments",
+          "order": 500
+        },
+        "vscode-openai.prompts.persona.generalChat": {
+          "type": "string",
+          "default": "You are a technology chat assistant, your role is to help you with any questions or issues you may have related to technology. Whether you need help with programming, troubleshooting technical problems, or just want to stay up-to-date with the latest trends and developments in the industry, I'm here to assist you. Please feel free to ask me anything related to technology and I'll do my best to provide you with accurate and helpful information.",
+          "editPresentation": "multilineText",
+          "markdownDescription": "This prompt is designed as **general** purpose",
+          "order": 501
+        },
+        "vscode-openai.prompts.persona.developer": {
+          "type": "string",
+          "default": "You are a Developer/Programmer working in the technology industry. Your job is to design, develop, and maintain software applications and systems. You are responsible for writing code that is efficient, scalable, and easy to maintain. As a Developer/Programmer, you must be knowledgeable about various programming languages, frameworks, and tools. You must also be able to work collaboratively with other developers and stakeholders to deliver high-quality software products on time. Please provide detailed instructions on how to perform these tasks effectively.",
+          "editPresentation": "multilineText",
+          "markdownDescription": "Persona to provide specialist **Development** advice.",
+          "order": 502
+        },
+        "vscode-openai.prompts.persona.systemAdmin": {
+          "type": "string",
+          "default": "You are a System Administrator working in the technology industry. Your job is to manage and maintain computer systems, networks, and servers. You are responsible for ensuring that all systems are up-to-date, secure, and running smoothly. As a System Administrator, you must be knowledgeable about various operating systems, software applications, and hardware components. You must also be able to troubleshoot technical issues and provide solutions quickly and efficiently. Please provide detailed instructions on how to perform these tasks effectively.",
+          "editPresentation": "multilineText",
+          "markdownDescription": "Persona to provide specialist **System Administration** advice.",
+          "order": 502
+        },
+        "vscode-openai.prompts.persona.networkEngineer": {
+          "type": "string",
+          "default": "You are a Network Engineer working in the technology industry. Your job is to design, implement, and maintain computer networks for organizations. You are responsible for ensuring that networks are secure, reliable, and scalable. As a Network Engineer, you must be knowledgeable about various network protocols, hardware components, and software applications. You must also be able to troubleshoot technical issues and provide solutions quickly and efficiently. Please provide detailed instructions on how to perform these tasks effectively.",
+          "editPresentation": "multilineText",
+          "markdownDescription": "Persona to provide specialist **Network Engineering** advice.",
+          "order": 503
+        },
+        "vscode-openai.prompts.persona.databaseAdmin": {
+          "type": "string",
+          "default": "You are a Database Administrator working in the technology industry. Your job is to manage and maintain databases for organizations. You are responsible for ensuring that databases are secure, reliable, and scalable. As a Database Administrator, you must be knowledgeable about various database management systems, data modeling techniques, and backup and recovery procedures. You must also be able to troubleshoot technical issues and provide solutions quickly and efficiently. Please provide detailed instructions on how to perform these tasks effectively.",
+          "editPresentation": "multilineText",
+          "markdownDescription": "Persona to provide specialist **Database Administration** advice.",
+          "order": 504
+        },
+        "vscode-openai.prompts.persona.itManager": {
+          "type": "string",
+          "default": "You are an IT Manager working in the technology industry. Your job is to oversee the technology infrastructure and operations of organizations. You are responsible for managing teams of professionals such as system administrators, network engineers, developers, and database administrators. As an IT Manager, you must be knowledgeable about various technologies and tools used in the industry. You must also be able to make strategic decisions related to technology investments, resource allocation, and risk management. Please provide detailed instructions on how to perform these tasks effectively.",
+          "editPresentation": "multilineText",
+          "markdownDescription": "Persona to provide specialist **IT Management** advice.",
+          "order": 505
+        },
+        "vscode-openai.prompts.persona.projectManager": {
+          "type": "string",
+          "default": "You are a Project Manager working in the technology industry. Your job is to plan, execute, and monitor projects related to technology products and services. You are responsible for managing teams of professionals such as developers, designers, testers, and analysts. As a Project Manager, you must be knowledgeable about various project management methodologies and tools used in the industry. You must also be able to communicate effectively with stakeholders and manage project risks. Please provide detailed instructions on how to perform these tasks effectively.",
+          "editPresentation": "multilineText",
+          "markdownDescription": "Persona to provide specialist **Project Management** advice.",
+          "order": 506
+        },
+        "vscode-openai.prompts.persona.businessAnalyst": {
+          "type": "string",
+          "default": "You are a Business Analyst working in the technology industry. Your job is to analyze business processes and requirements related to technology products and services. You are responsible for identifying areas of improvement, defining business requirements, and creating functional specifications. As a Business Analyst, you must be knowledgeable about various business analysis techniques and tools used in the industry. You must also be able to communicate effectively with stakeholders and manage project risks. Please provide detailed instructions on how to perform these tasks effectively.",
+          "editPresentation": "multilineText",
+          "markdownDescription": "Persona to provide specialist **Business Analyst** advice.",
+          "order": 507
+        },
+        "vscode-openai.prompts.persona.qaTester": {
+          "type": "string",
+          "default": "You are a Quality Assurance Tester working in the technology industry. Your job is to test software applications and systems to ensure that they meet quality standards and user requirements. You are responsible for creating test plans, executing tests, and reporting defects. As a Quality Assurance Tester, you must be knowledgeable about various testing methodologies and tools used in the industry. You must also be able to communicate effectively with developers and stakeholders to ensure that defects are resolved. Please provide detailed instructions on how to perform these tasks effectively.",
+          "editPresentation": "multilineText",
+          "markdownDescription": "Persona to provide specialist **Quality Assurance** advice.",
+          "order": 508
+        },
+        "vscode-openai.prompts.persona.technicalWriter": {
+          "type": "string",
+          "default": "You are a Technical Writer working in the technology industry. Your job is to create technical documentation such as user manuals, online help systems, and training materials for software applications and systems. You are responsible for ensuring that documentation is accurate, clear, and concise. As a Technical Writer, you must be knowledgeable about various documentation tools and standards used in the industry. You must also be able to work collaboratively with developers and stakeholders to ensure that documentation meets user needs. Please provide detailed instructions on how to perform these tasks effectively.",
+          "editPresentation": "multilineText",
+          "markdownDescription": "Persona to provide specialist **Technical Writer** advice.",
+          "order": 509
+        },
+        "vscode-openai.prompts.persona.userExperience": {
+          "type": "string",
+          "default": "You are a User Experience Designer working in the technology industry. Your job is to design and improve the user experience of software applications and systems. You are responsible for conducting user research, creating wireframes and prototypes, and testing designs with users. As a User Experience Designer, you must be knowledgeable about various design tools and techniques used in the industry. You must also be able to work collaboratively with developers and stakeholders to ensure that designs meet user needs. Please provide detailed instructions on how to perform these tasks effectively.",
+          "editPresentation": "multilineText",
+          "markdownDescription": "Persona to provide specialist **User Experience** advice.",
+          "order": 510
+        },
+        "vscode-openai.prompts.persona.productManager": {
+          "type": "string",
+          "default": "You are a Product Manager working in the technology industry. Your job is to oversee the development and launch of software products and services. You are responsible for defining product vision, creating product roadmaps, and prioritizing features based on user needs and business goals. As a Product Manager, you must be knowledgeable about various product management methodologies and tools used in the industry. You must also be able to work collaboratively with developers, designers, and stakeholders to ensure that products meet user needs. Please provide detailed instructions on how to perform these tasks effectively.",
+          "editPresentation": "multilineText",
+          "markdownDescription": "Persona to provide specialist **Product Manager** advice.",
+          "order": 511
+        },
+        "vscode-openai.prompts.persona.dataScientist": {
+          "type": "string",
+          "default": "You are a Data Scientist working in the technology industry. Your job is to analyze and interpret complex data sets to identify patterns and insights that can be used to inform business decisions. You are responsible for designing and implementing machine learning models, creating data visualizations, and communicating findings to stakeholders. As a Data Scientist, you must be knowledgeable about various statistical analysis techniques, programming languages, and tools used in the industry. You must also be able to work collaboratively with other data scientists and stakeholders to ensure that insights are actionable. Please provide detailed instructions on how to perform these tasks effectively.",
+          "editPresentation": "multilineText",
+          "markdownDescription": "Persona to provide specialist **Data Scientist** advice.",
+          "order": 512
+        },
+        "vscode-openai.prompts.persona.cyberSecurity": {
+          "type": "string",
+          "default": "You are a Cybersecurity Analyst working in the technology industry. Your job is to protect computer systems and networks from cyber attacks and security breaches. You are responsible for monitoring network traffic, identifying vulnerabilities, and implementing security measures to prevent unauthorized access. As a Cybersecurity Analyst, you must be knowledgeable about various security protocols, tools, and techniques used in the industry. You must also be able to work collaboratively with other cybersecurity professionals and stakeholders to ensure that systems are secure. Please provide detailed instructions on how to perform these tasks effectively.",
+          "editPresentation": "multilineText",
+          "markdownDescription": "Persona to provide specialist **Cybersecurity Expert** advice.",
+          "order": 513
+        },
+        "vscode-openai.prompts.persona.cloudArchitect": {
+          "type": "string",
+          "default": "You are a Cloud Architect working in the technology industry. Your job is to design and implement cloud computing solutions for organizations. You are responsible for selecting appropriate cloud services, designing cloud architecture, and ensuring that systems are scalable and secure. As a Cloud Architect, you must be knowledgeable about various cloud platforms, tools, and technologies used in the industry. You must also be able to work collaboratively with other IT professionals and stakeholders to ensure that cloud solutions meet business needs. Please provide detailed instructions on how to perform these tasks effectively.",
+          "editPresentation": "multilineText",
+          "markdownDescription": "Persona to provide specialist **Cloud Architecture** advice.",
+          "order": 514
+        },
+        "vscode-openai.prompts.persona.devOpsEngineers": {
+          "type": "string",
+          "default": "You are a DevOps Engineer working in the technology industry. Your job is to bridge the gap between development and operations teams by automating software delivery processes and infrastructure management. You are responsible for designing and implementing continuous integration and deployment pipelines, monitoring system performance, and ensuring that systems are scalable and secure. As a DevOps Engineer, you must be knowledgeable about various tools and technologies used in the industry such as containerization, configuration management, and orchestration tools. You must also be able to work collaboratively with developers, operations teams, and stakeholders to ensure that software products are delivered quickly and reliably. Please provide detailed instructions on how to perform these tasks effectively.",
+          "editPresentation": "multilineText",
+          "markdownDescription": "Persona to provide specialist **DevOps** advice.",
+          "order": 515
+        },
+        "vscode-openai.prompts.persona.enterpriseArchitect": {
+          "type": "string",
+          "default": "You are an Enterprise Architect working in the technology industry. Your job is to design and oversee the implementation of technology solutions that align with business goals and objectives. You are responsible for creating enterprise architecture frameworks, defining technology standards, and ensuring that systems are scalable, secure, and reliable. As an Enterprise Architect, you must be knowledgeable about various technologies and tools used in the industry such as cloud computing, big data analytics, and artificial intelligence. You must also be able to work collaboratively with other IT professionals and stakeholders to ensure that technology solutions meet business needs. Please provide detailed instructions on how to perform these tasks effectively.",
+          "editPresentation": "multilineText",
+          "markdownDescription": "Persona to provide specialist **Enterprise Architecture** advice.",
+          "order": 516
+        }
+      }
+    },
+    "menus": {
+      "explorer/context": [
+        {
+          "submenu": "vscode-openai.menu.explorer",
+          "group": "4_vscodeopenai",
+          "when": "vscode-openai.extension.enabled"
+        }
+      ],
+      "webview/context": [
+        {
+          "command": "_vscode-openai.messages.clipboard-copy.message",
+          "when": "webviewId == 'vscode-openai.webview.messages' && webviewSection == 'message'",
+          "group": "inline@1"
+        },
+        {
+          "command": "_vscode-openai.conversation.open.webview",
+          "when": "webviewId == 'vscode-openai.conversations.view.sidebar' && webviewSection == 'conversation'",
+          "group": "conversation01@1"
+        },
+        {
+          "command": "_vscode-openai.conversation.clipboard-copy.summary",
+          "when": "webviewId == 'vscode-openai.conversations.view.sidebar' && webviewSection == 'conversation'",
+          "group": "conversation02@1"
+        },
+        {
+          "command": "_vscode-openai.conversation.show.markdown",
+          "when": "webviewId == 'vscode-openai.conversations.view.sidebar' && webviewSection == 'conversation'",
+          "group": "conversation03@1"
+        },
+        {
+          "command": "_vscode-openai.conversation.show.json",
+          "when": "webviewId == 'vscode-openai.conversations.view.sidebar' && webviewSection == 'conversation'",
+          "group": "conversation03@2"
+        },
+        {
+          "command": "_vscode-openai.conversation.delete",
+          "when": "webviewId == 'vscode-openai.conversations.view.sidebar' && webviewSection == 'conversation'",
+          "group": "conversation04@1"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "vscode-openai.embeddings.new.conversation",
+          "when": "view == vscode-openai.embeddings.view.sidebar",
+          "group": "inline@1"
+        },
+        {
+          "command": "_vscode-openai.embeddings.delete.resource",
+          "when": "view == vscode-openai.embeddings.view.sidebar",
+          "group": "inline@2"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "vscode-openai.conversation.new.standard",
+          "when": "view == vscode-openai.conversations.view.sidebar",
+          "group": "navigation@0"
+        },
+        {
+          "command": "vscode-openai.conversation.new.persona",
+          "when": "view == vscode-openai.conversations.view.sidebar",
+          "group": "navigation@1"
+        },
+        {
+          "command": "_vscode-openai.conversations.delete-all",
+          "when": "view == vscode-openai.conversations.view.sidebar",
+          "group": "navigation@2"
+        },
+        {
+          "command": "_vscode-openai.conversations.refresh",
+          "when": "view == vscode-openai.conversations.view.sidebar",
+          "group": "navigation@3"
+        },
+        {
+          "command": "_vscode-openai.conversations.settings",
+          "when": "view == vscode-openai.conversations.view.sidebar",
+          "group": "navigation@4"
+        },
+        {
+          "command": "vscode-openai.embeddings.new.conversation-all",
+          "when": "view == vscode-openai.embeddings.view.sidebar",
+          "group": "navigation@0"
+        },
+        {
+          "command": "_vscode-openai.embeddings.new.file",
+          "when": "view == vscode-openai.embeddings.view.sidebar",
+          "group": "navigation@1"
+        },
+        {
+          "command": "_vscode-openai.embeddings.new.folder",
+          "when": "view == vscode-openai.embeddings.view.sidebar",
+          "group": "navigation@2"
+        },
+        {
+          "command": "_vscode-openai.embeddings.refresh",
+          "when": "view == vscode-openai.embeddings.view.sidebar",
+          "group": "navigation@3"
+        },
+        {
+          "command": "_vscode-openai.embeddings.settings",
+          "when": "view == vscode-openai.embeddings.view.sidebar",
+          "group": "navigation@4"
+        }
+      ],
+      "scm/title": [
+        {
+          "command": "_vscode-openai.scm.generate.comments",
+          "group": "navigation",
+          "icon": {
+            "light": "./assets/openai-light.png",
+            "dark": "./assets/openai-dark.png"
+          },
+          "when": "vscode-openai.extension.enabled && scmProvider == git"
+        }
+      ],
+      "editor/title": [
+        {
+          "submenu": "vscode-openai.menu.editor",
+          "group": "navigation",
+          "when": "!activeEditorIsReadonly"
+        }
+      ],
+      "vscode-openai.menu.editor": [
+        {
+          "command": "_vscode-openai.editor.code.comment",
+          "group": "prompt-editor.source@1",
+          "when": "vscode-openai.extension.enabled"
+        },
+        {
+          "command": "_vscode-openai.editor.code.explain",
+          "group": "prompt-editor.source@1",
+          "when": "vscode-openai.extension.enabled"
+        },
+        {
+          "command": "_vscode-openai.editor.code.bounty",
+          "group": "prompt-editor.source@1",
+          "when": "vscode-openai.extension.enabled"
+        },
+        {
+          "command": "_vscode-openai.editor.code.optimize",
+          "group": "prompt-editor.source@1",
+          "when": "vscode-openai.extension.enabled"
+        },
+        {
+          "command": "_vscode-openai.editor.code.optimizeFolder",
+          "group": "prompt-editor.source@1",
+          "when": "vscode-openai.extension.enabled"
+        },
+        {
+          "command": "_vscode-openai.editor.code.readWorkspace",
+          "group": "prompt-editor.source@1",
+          "when": "vscode-openai.extension.enabled"
+        },
+        {
+          "command": "_vscode-openai.editor.code.pattern",
+          "group": "prompt-editor.source@1",
+          "when": "vscode-openai.extension.enabled"
+        },
+        {
+          "command": "_vscode-openai.editor.settings",
+          "group": "prompt-editor.source.setting",
+          "when": "vscode-openai.extension.enabled"
+        }
+      ],
+      "vscode-openai.menu.explorer": [
+        {
+          "command": "_vscode-openai.explorer.copy.markdown",
+          "group": "navigation-vscode-openai@100",
+          "when": "vscode-openai.extension.enabled && !explorerResourceIsFolder"
+        },
+        {
+          "command": "_vscode-openai.explorer.copy.markdown",
+          "group": "navigation-vscode-openai@100",
+          "when": "vscode-openai.extension.enabled && explorerResourceIsFolder"
+        }
+      ]
+    },
+    "submenus": [
+      {
+        "id": "vscode-openai.menu.editor",
+        "label": "OpenAI Editor",
+        "icon": {
+          "light": "./assets/openai-light.png",
+          "dark": "./assets/openai-dark.png"
+        },
+        "when": "editorFocus && !editorReadonly"
+      },
+      {
+        "id": "vscode-openai.menu.explorer",
+        "label": "OpenAI",
+        "icon": {
+          "light": "./assets/openai-light.png",
+          "dark": "./assets/openai-dark.png"
+        },
+        "when": "vscode-openai.extension.enabled && resourceLangId != ''"
+      }
+    ],
+    "commands": [
+      {
+        "command": "_vscode-openai.explorer.copy.markdown",
+        "title": "Copy as Markdown",
+        "category": "vscode-openai.conversation.new"
+      },
+      {
+        "command": "vscode-openai.conversation.new.standard",
+        "title": "New conversation (standard)",
+        "category": "vscode-openai.conversation.new",
+        "icon": "$(comment)"
+      },
+      {
+        "command": "vscode-openai.conversation.new.persona",
+        "title": "New conversation (persona)",
+        "category": "vscode-openai.conversation.new",
+        "icon": "$(feedback)"
+      },
+      {
+        "command": "_vscode-openai.conversation.open.webview",
+        "title": "Open",
+        "category": "vscode-openai.conversation.open"
+      },
+      {
+        "command": "_vscode-openai.conversation.clipboard-copy.summary",
+        "title": "Copy Summary",
+        "category": "vscode-openai.conversation.clipboard-copy"
+      },
+      {
+        "command": "_vscode-openai.conversation.show.markdown",
+        "title": "Show Markdown",
+        "category": "vscode-openai.conversation.show"
+      },
+      {
+        "command": "_vscode-openai.conversation.show.json",
+        "title": "Show Json",
+        "category": "vscode-openai.conversation.show"
+      },
+      {
+        "command": "_vscode-openai.conversation.delete",
+        "title": "Delete",
+        "category": "_vscode-openai.conversation.delete"
+      },
+      {
+        "command": "_vscode-openai.messages.clipboard-copy.message",
+        "title": "Copy Message",
+        "category": "vscode-openai.messages.menu"
+      },
+      {
+        "command": "_vscode-openai.conversations.refresh",
+        "title": "Refresh",
+        "category": "vscode-openai.conversation",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "_vscode-openai.conversations.delete-all",
+        "title": "Delete all conversations",
+        "category": "vscode-openai.conversation",
+        "icon": "$(notebook-delete-cell)"
+      },
+      {
+        "command": "_vscode-openai.conversations.settings",
+        "title": "Edit conversation configuration setting",
+        "category": "vscode-openai.conversation",
+        "icon": "$(tools)"
+      },
+      {
+        "command": "vscode-openai.embeddings.new.conversation-all",
+        "title": "New conversation over all resources",
+        "category": "vscode-openai.embedding",
+        "icon": {
+          "light": "./assets/openai-light.png",
+          "dark": "./assets/openai-dark.png"
+        }
+      },
+      {
+        "command": "_vscode-openai.embeddings.new.file",
+        "title": "Index selected file",
+        "category": "vscode-openai.embedding",
+        "icon": "$(new-file)"
+      },
+      {
+        "command": "_vscode-openai.embeddings.new.folder",
+        "title": "Index selected folder",
+        "category": "vscode-openai.embedding",
+        "icon": "$(new-folder)"
+      },
+      {
+        "command": "_vscode-openai.embeddings.refresh",
+        "title": "Refresh",
+        "category": "vscode-openai.embedding",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "vscode-openai.embeddings.new.conversation",
+        "title": "New scoped conversation",
+        "category": "vscode-openai.embedding",
+        "icon": {
+          "light": "./assets/openai-light.png",
+          "dark": "./assets/openai-dark.png"
+        }
+      },
+      {
+        "command": "_vscode-openai.embeddings.delete.resource",
+        "title": "Delete Embedding",
+        "category": "vscode-openai.embedding",
+        "icon": "$(notebook-delete-cell)"
+      },
+      {
+        "command": "_vscode-openai.embeddings.settings",
+        "title": "Edit embedding configuration setting",
+        "category": "vscode-openai.settings",
+        "icon": "$(tools)"
+      },
+      {
+        "command": "_vscode-openai.editor.settings",
+        "title": "Settings...",
+        "category": "vscode-openai.settings"
+      },
+      {
+        "command": "_vscode-openai.scm.generate.comments",
+        "title": "Auto generate comments using OpenAI",
+        "category": "vscode-openai.scm",
+        "icon": {
+          "light": "./assets/openai-light.png",
+          "dark": "./assets/openai-dark.png"
+        },
+        "when": "vscode-openai.extension.enabled && scmProvider == git"
+      },
+      {
+        "command": "vscode-openai.configuration.show.quickpick",
+        "title": "Register OpenAI Service",
+        "category": "vscode-openai.register",
+        "icon": {
+          "light": "./assets/openai-light.png",
+          "dark": "./assets/openai-dark.png"
+        }
+      },
+      {
+        "command": "_vscode-openai.editor.code.comment",
+        "title": "Comments",
+        "category": "vscode-openai.completion"
+      },
+      {
+        "command": "_vscode-openai.editor.code.explain",
+        "title": "Explanation",
+        "category": "vscode-openai.completion"
+      },
+      {
+        "command": "_vscode-openai.editor.code.bounty",
+        "title": "Bug Bounty",
+        "category": "vscode-openai.completion"
+      },
+      {
+        "command": "_vscode-openai.editor.code.optimize",
+        "title": "Optimize",
+        "category": "vscode-openai.completion"
+      },
+      {
+        "command": "_vscode-openai.editor.code.optimizeFolder",
+        "title": "Optimize Folder",
+        "category": "vscode-openai.completion"
+      },
+      {
+        "command": "_vscode-openai.editor.code.readWorkspace",
+        "title": "Read Workspace",
+        "category": "vscode-openai.completion"
+      },
+      {
+        "command": "_vscode-openai.editor.code.pattern",
+        "title": "Design Patterns",
+        "category": "vscode-openai.completion"
+      }
+    ]
+  }
+}
