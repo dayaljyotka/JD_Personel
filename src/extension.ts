@@ -1,4 +1,4 @@
-import { ExtensionContext } from 'vscode'
+import { ExtensionContext, commands } from 'vscode'
 
 import { CommandManager, registerVscodeOpenAICommands } from './commands'
 import { StatusBarServiceProvider, TelemetryService } from './apis/vscode'
@@ -14,6 +14,7 @@ import {
   conversationsWebviewViewProvider,
 } from './providers'
 import { disableServiceFeature } from './services/featureFlagServices'
+import ReadWorkspaceCommand from './commands/editor/readWorkspace'
 
 export function activate(context: ExtensionContext) {
   try {
@@ -37,6 +38,13 @@ export function activate(context: ExtensionContext) {
       registerVscodeOpenAICommands(context, commandManager, embeddingTree)
     )
     conversationsWebviewViewProvider(context)
+
+     // Register new commands
+     context.subscriptions.push(
+      commands.registerCommand('_vscode-openai.editor.code.readWorkspace', () => {
+        new ReadWorkspaceCommand(context).execute();
+      })
+    );
 
     createInfoNotification('vscode-openai ready')
   } catch (error: unknown) {

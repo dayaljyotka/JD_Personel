@@ -87,7 +87,7 @@ export function registerVscodeOpenAICommands(
   commandManager.register(new EditorCodeBountyCommand())
   commandManager.register(new EditorCodeOptimizeCommand())
   commandManager.register(new FolderCodeOptimizeCommand())
-  commandManager.register(new ReadWorkspaceCommand())
+  commandManager.register(new ReadWorkspaceCommand(context))
   commandManager.register(new EditorCodePatternsCommand())
 
   // Configuration
