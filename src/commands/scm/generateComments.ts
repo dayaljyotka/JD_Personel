@@ -1,0 +1,32 @@
+import { ICommand } from './../../commands'
+import { GitService, getComments, getGitDifferences } from './../../apis/git'
+import {
+  createErrorNotification,
+  createDebugNotification,
+} from './../../apis/node'
+
+export default class GenerateCommentsCommand implements ICommand {
+  public readonly id = '_vscode-openai.scm.generate.comments'
+
+  public async execute() {
+    const gitService = new GitService()
+
+    if (!gitService.isAvailable()) {
+      createErrorNotification(`GitService: unavailable...`)
+      return
+    }
+
+    const diff = await getGitDifferences(gitService)
+    if (diff) {
+      const s = await getComments(diff)
+      const comments = s.replace(/<\s*think\s*>(.*?)<\/think>/gs, '').trim()
+
+      createDebugNotification(
+        `GitService: diff(${diff.length}) ~ comments(${comments.length})`
+      )
+      gitService.setSCMInputBoxMessage(comments)
+    } else {
+      createErrorNotification(`GitService: empty difference`)
+    }
+  }
+}
