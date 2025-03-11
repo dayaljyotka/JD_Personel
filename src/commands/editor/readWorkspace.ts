@@ -1,59 +1,96 @@
 import { ICommand } from './../../commands';
 import * as vscode from 'vscode';
 import OpenAI from 'openai';
+import { spawn } from 'child_process';
+import * as path from 'path';
 
-// Module-level variables
 let openai: OpenAI | undefined;
 
-async function getWorkspaceFilesIgnoringGitignore(): Promise<vscode.Uri[]> {
-  // ... (Your existing getWorkspaceFilesIgnoringGitignore function)
-  if (!vscode.workspace.workspaceFolders) {
-    return [];
-  }
-
-  const workspaceFolder = vscode.workspace.workspaceFolders[0];
-  const gitExtension = vscode.extensions.getExtension('vscode.git');
-  console.log('gitExtension', gitExtension);
-  if (!gitExtension) {
-    // Git extension not found.
-    vscode.window.showErrorMessage('Git extension not found.');
-    return [];
-  }
-
-  if (!gitExtension.isActive) {
-    await gitExtension.activate();
-  }
-
-  const git = gitExtension.exports.getAPI(1); // Get the Git API
-
-  const repo = git.getRepository(workspaceFolder.uri);
-  console.log('repo', repo);
-  if (!repo) {
-    // Git repository not found.
-    return await vscode.workspace.findFiles('**/*');
-  }
-
+// Helper function to check which files are ignored by Git using batch processing
+async function getNonIgnoredFiles(): Promise<vscode.Uri[]> {
   try {
-    const stagedChanges = await repo?.getStagedChanges();
-    const unstagedChanges = await repo?.getUnstagedChanges();
+    // Step 1: Get all files in the workspace
+    const allFiles: vscode.Uri[] = await vscode.workspace.findFiles('**/*'); // Retrieve all files in the workspace
+    console.log("All files in workspace:", allFiles.length);
 
-    const trackedFiles = new Set<string>();
+    // Step 2: Get the root folder of the workspace
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders || workspaceFolders.length === 0) {
+      vscode.window.showErrorMessage("No workspace folder found.");
+      return [];
+    }
+    const workspaceFolder = workspaceFolders[0]; // Assume first workspace folder
+    const workspaceUri = workspaceFolder.uri; // Workspace root URI
 
-    [...stagedChanges, ...unstagedChanges].forEach((change) => {
-      trackedFiles.add(change.uri.fsPath);
-    });
-
-    const fileUris = Array.from(trackedFiles).map((fsPath) =>
-      vscode.Uri.file(fsPath)
+    // Step 3: Use git to check for ignored files
+    const ignoredFiles = await getGitIgnoredFiles(
+      workspaceUri,
+      allFiles.map((file) => file.fsPath)
     );
-    console.log();
-    return fileUris;
+
+    // Step 4: Filter out ignored files and return non-ignored files
+    const nonIgnoredFiles = allFiles.filter(
+      (file) => !ignoredFiles.has(path.relative(workspaceUri.fsPath, file.fsPath))
+    );
+
+    console.log("Non-ignored files:", nonIgnoredFiles.length);
+    return nonIgnoredFiles; // Return the non-ignored files
   } catch (error) {
-    console.error('Error getting Git tracked files:', error);
+    console.error(`Error fetching non-ignored files: ${error}`);
+    vscode.window.showErrorMessage(`Error fetching non-ignored files: ${error}`);
     return [];
   }
 }
 
+function getGitIgnoredFiles(workspaceUri: vscode.Uri, filePaths: string[]): Promise<Set<string>> {
+  return new Promise((resolve, reject) => {
+    const relativePaths = filePaths.map((filePath) =>
+      path.relative(workspaceUri.fsPath, filePath)
+    );
+
+    console.log("Relative paths sent to Git:", relativePaths);
+
+    const gitProcess = spawn('git', ['-C', workspaceUri.fsPath, 'check-ignore', '--stdin']);
+
+    let stdout = '';
+    let stderr = '';
+
+    gitProcess.stdout.on('data', (data) => {
+      stdout += data.toString();
+    });
+
+    gitProcess.stderr.on('data', (data) => {
+      stderr += data.toString();
+    });
+
+    gitProcess.on('close', (code) => {
+      if (code === 0 || code === 1) {
+        // Parse ignored files from stdout
+        const ignoredFiles = new Set(
+          stdout.split('\n').map((line) => line.trim()).filter((line) => line)
+        );
+        resolve(ignoredFiles);
+      } else {
+        reject(new Error(`Git error: ${stderr || 'Unknown error'}`));
+      }
+    });
+
+    gitProcess.on('error', (error) => {
+      reject(error);
+    });
+
+    // Write file paths to the Git process
+    relativePaths.forEach((relativePath) => {
+      if (relativePath) {
+        gitProcess.stdin.write(`${relativePath}\n`);
+      }
+    });
+
+    gitProcess.stdin.end();
+  });
+}
+
+// VS Code command implementation
 export default class ReadWorkspaceCommand implements ICommand {
   private context: vscode.ExtensionContext;
   public readonly id = '_vscode-openai.editor.code.readWorkspace';
@@ -69,10 +106,10 @@ export default class ReadWorkspaceCommand implements ICommand {
     }
 
     const workspaceFolder = vscode.workspace.workspaceFolders[0];
-    console.log('workspaceFolder', workspaceFolder);
+    console.log('Workspace Folder:', workspaceFolder);
 
     try {
-      const fileUris = await getWorkspaceFilesIgnoringGitignore();
+      const fileUris = await getNonIgnoredFiles();
 
       if (fileUris.length === 0) {
         vscode.window.showInformationMessage('No files found in the workspace.');
@@ -86,7 +123,6 @@ export default class ReadWorkspaceCommand implements ICommand {
       const storedFiles = this.context.workspaceState.get<vscode.Uri[]>('workspaceFiles');
       console.log('Stored workspaceFiles in context:', storedFiles);
 
-
       // Initialize OpenAI client
       if (!openai) {
         const apiKey = vscode.workspace
@@ -94,12 +130,10 @@ export default class ReadWorkspaceCommand implements ICommand {
           .get<string>('apiKey');
 
         if (!apiKey) {
-          vscode.window.showErrorMessage(
-            'OpenAI API key not found in settings.'
-          );
+          vscode.window.showErrorMessage('OpenAI API key not found in settings.');
           return;
         }
-        openai = new OpenAI({ apiKey: apiKey });
+        openai = new OpenAI({ apiKey });
       }
 
       vscode.window.showInformationMessage('Workspace files loaded.');
@@ -108,51 +142,3 @@ export default class ReadWorkspaceCommand implements ICommand {
     }
   }
 }
-
-// New command for processing files
-// export class ProcessWorkspaceFilesCommand implements ICommand {
-//   public readonly id = '_vscode-openai.editor.code.processWorkspaceFiles';
-
-//   public async execute(): Promise<void> {
-//     if (!workspaceFiles || !openai) {
-//       vscode.window.showErrorMessage(
-//         'Workspace files or OpenAI session not initialized.'
-//       );
-//       return;
-//     }
-
-//     await vscode.window.withProgress(
-//       {
-//         location: vscode.ProgressLocation.Notification,
-//         title: 'Processing Workspace Files',
-//         cancellable: false,
-//       },
-//       async (progress) => {
-//         const persona = getSystemPersonas().find(
-//           (a) => a.roleName === VSCODE_OPENAI_QP_PERSONA.DEVELOPER
-//         );
-//         if (!persona) {
-//           vscode.window.showErrorMessage('Developer persona not found.');
-//           return;
-//         }
-
-//         const processingPromises = workspaceFiles.map(async (fileUri, index) => {
-//           const document = await vscode.workspace.openTextDocument(fileUri);
-//           const prompt = document.getText();
-//           await vscode.window.showTextDocument(document);
-
-//           await compareResultsToClipboard(persona, prompt);
-
-//           progress.report({
-//             increment: (index + 1) * (100 / workspaceFiles.length),
-//             message: `Processed ${path.basename(fileUri.fsPath)}`,
-//           });
-//         });
-
-//         await Promise.all(processingPromises);
-//       }
-//     );
-
-//     vscode.window.showInformationMessage('Workspace files processed.');
-//   }
-// }

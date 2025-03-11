@@ -36,7 +36,8 @@
     "esbuild-watch": "yarn esbuild-base -- --sourcemap --watch",
     "compile": "tsc -p ./",
     "deploy": "vsce publish --yarn",
-    "clean": "node ./utilities/scripts/clean.js"
+    "clean": "node ./utilities/scripts/clean.js",
+    "watch-ts": "nodemon --quiet --exec \"echo 🚀 Compilation started... && tsc -p . && echo ✅ Compilation finished!\" --ext ts,json"
   },
   "devDependencies": {
     "@types/crypto-js": "^4.2.2",
@@ -51,12 +52,13 @@
     "@arbs.io/asset-extractor-wasm": "^0.1.3",
     "@vscode/extension-telemetry": "^0.9.8",
     "crypto-js": "^4.2.0",
+    "nodemon": "^3.1.9",
     "openai": "^4.85.4",
     "uuid": "^11.1.0"
   },
   "extensionDependencies": [
     "vscode.git"
-],
+  ],
   "keywords": [
     "ai",
     "chatgpt",
