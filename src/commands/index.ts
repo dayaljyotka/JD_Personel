@@ -34,7 +34,7 @@ import {
   EditorCodeExplainCommand,
   EditorCodeBountyCommand,
   EditorCodeOptimizeCommand,
-  FolderCodeOptimizeCommand,
+  WorkspaceOptimizeCommand,
   ReadWorkspaceCommand,
   EditorCodePatternsCommand,
 } from './editor'
@@ -86,7 +86,7 @@ export function registerVscodeOpenAICommands(
   commandManager.register(new EditorCodeExplainCommand())
   commandManager.register(new EditorCodeBountyCommand())
   commandManager.register(new EditorCodeOptimizeCommand())
-  commandManager.register(new FolderCodeOptimizeCommand())
+  commandManager.register(new WorkspaceOptimizeCommand(context))
   commandManager.register(new ReadWorkspaceCommand(context))
   commandManager.register(new EditorCodePatternsCommand())
 

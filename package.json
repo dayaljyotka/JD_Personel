@@ -744,7 +744,7 @@
           "when": "vscode-openai.extension.enabled"
         },
         {
-          "command": "_vscode-openai.editor.code.optimizeFolder",
+          "command": "_vscode-openai.editor.code.optimizeWorkspace",
           "group": "prompt-editor.source@1",
           "when": "vscode-openai.extension.enabled"
         },
@@ -956,8 +956,8 @@
         "category": "vscode-openai.completion"
       },
       {
-        "command": "_vscode-openai.editor.code.optimizeFolder",
-        "title": "Optimize Folder",
+        "command": "_vscode-openai.editor.code.optimizeWorkspace",
+        "title": "Optimize Workspace",
         "category": "vscode-openai.completion"
       },
       {
