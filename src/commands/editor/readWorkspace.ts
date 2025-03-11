@@ -6,49 +6,12 @@ import * as path from 'path';
 
 let openai: OpenAI | undefined;
 
-// Helper function to check which files are ignored by Git using batch processing
-async function getNonIgnoredFiles(): Promise<vscode.Uri[]> {
-  try {
-    // Step 1: Get all files in the workspace
-    const allFiles: vscode.Uri[] = await vscode.workspace.findFiles('**/*'); // Retrieve all files in the workspace
-    console.log("All files in workspace:", allFiles.length);
-
-    // Step 2: Get the root folder of the workspace
-    const workspaceFolders = vscode.workspace.workspaceFolders;
-    if (!workspaceFolders || workspaceFolders.length === 0) {
-      vscode.window.showErrorMessage("No workspace folder found.");
-      return [];
-    }
-    const workspaceFolder = workspaceFolders[0]; // Assume first workspace folder
-    const workspaceUri = workspaceFolder.uri; // Workspace root URI
-
-    // Step 3: Use git to check for ignored files
-    const ignoredFiles = await getGitIgnoredFiles(
-      workspaceUri,
-      allFiles.map((file) => file.fsPath)
-    );
-
-    // Step 4: Filter out ignored files and return non-ignored files
-    const nonIgnoredFiles = allFiles.filter(
-      (file) => !ignoredFiles.has(path.relative(workspaceUri.fsPath, file.fsPath))
-    );
-
-    console.log("Non-ignored files:", nonIgnoredFiles.length);
-    return nonIgnoredFiles; // Return the non-ignored files
-  } catch (error) {
-    console.error(`Error fetching non-ignored files: ${error}`);
-    vscode.window.showErrorMessage(`Error fetching non-ignored files: ${error}`);
-    return [];
-  }
-}
-
+// Function to fetch Git ignored files
 function getGitIgnoredFiles(workspaceUri: vscode.Uri, filePaths: string[]): Promise<Set<string>> {
   return new Promise((resolve, reject) => {
     const relativePaths = filePaths.map((filePath) =>
       path.relative(workspaceUri.fsPath, filePath)
     );
-
-    console.log("Relative paths sent to Git:", relativePaths);
 
     const gitProcess = spawn('git', ['-C', workspaceUri.fsPath, 'check-ignore', '--stdin']);
 
@@ -81,13 +44,59 @@ function getGitIgnoredFiles(workspaceUri: vscode.Uri, filePaths: string[]): Prom
 
     // Write file paths to the Git process
     relativePaths.forEach((relativePath) => {
-      if (relativePath) {
-        gitProcess.stdin.write(`${relativePath}\n`);
-      }
+      gitProcess.stdin.write(`${relativePath}\n`);
     });
 
     gitProcess.stdin.end();
   });
+}
+
+// Function to get non-ignored files (returns an array directly)
+async function getNonIgnoredFiles(workspaceUri: vscode.Uri): Promise<vscode.Uri[]> {
+  try {
+    // Step 1: Get all files in the workspace
+    const allFiles: vscode.Uri[] = await vscode.workspace.findFiles('**/*'); // Retrieve all files in the workspace
+    console.log("TotalFiles:",allFiles.length);
+
+    // Step 2: Fetch the ignored files (including ignored folders and files)
+    const ignoredFiles = await getGitIgnoredFiles(
+      workspaceUri,
+      allFiles.map((file) => file.fsPath)
+    );
+
+    const normalizedIgnoredFiles = new Set(Array.from(ignoredFiles).map((filePath) =>
+      filePath.replace(/\\\\/g, '\\').replace(/"/g, ""))
+    );
+
+    normalizedIgnoredFiles.forEach(
+      x=>{console.log("ignored Files:",x) }
+    );
+
+    // Step 3: Filter out the non-ignored files
+    const nonIgnoredFiles: vscode.Uri[] = [];
+
+    // Iterate over all files
+    for (const file of allFiles) {
+      const relativeFilePath:string = path.relative(workspaceUri.fsPath, file.fsPath).trim().toLowerCase();
+      console.log("relativePaths:",relativeFilePath);
+      //let isIgnored = normalizedIgnoredFiles.has(`${relativeFilePath}`); // Check if the exact file is ignored
+      let isIgnored = [...normalizedIgnoredFiles].some(filePath => filePath.toLowerCase() === relativeFilePath.toLowerCase());
+
+      // If not ignored, add it to the list of non-ignored files
+      if (!isIgnored) {
+        nonIgnoredFiles.push(file);
+      }
+    }
+
+    // Step 4: Return the array of non-ignored files
+    console.log("nonIgnoredFiles:",nonIgnoredFiles.length);
+    return nonIgnoredFiles;
+
+  } catch (error) {
+    console.error(`Error fetching non-ignored files: ${error}`);
+    vscode.window.showErrorMessage(`Error fetching non-ignored files: ${error}`);
+    return []; // Return an empty array in case of error
+  }
 }
 
 // VS Code command implementation
@@ -106,10 +115,9 @@ export default class ReadWorkspaceCommand implements ICommand {
     }
 
     const workspaceFolder = vscode.workspace.workspaceFolders[0];
-    console.log('Workspace Folder:', workspaceFolder);
 
     try {
-      const fileUris = await getNonIgnoredFiles();
+      const fileUris = await getNonIgnoredFiles(vscode.Uri.file(workspaceFolder.uri.fsPath));
 
       if (fileUris.length === 0) {
         vscode.window.showInformationMessage('No files found in the workspace.');
