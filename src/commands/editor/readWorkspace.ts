@@ -1,108 +1,24 @@
 import { ICommand } from './../../commands';
 import * as vscode from 'vscode';
-import OpenAI from 'openai';
-import { spawn } from 'child_process';
+import { ConversationStorageService } from './../../services/index';
+import {
+  IChatCompletion,
+  IConversation,
+} from '@app/interfaces';
+import {
+  ChatCompletionConfig,
+  ChatCompletionModelType,
+} from './../../services/configuration';
 import * as path from 'path';
+import * as fs from 'fs';
+import { getSystemPersonas } from './../../models';
+import { VSCODE_OPENAI_QP_PERSONA } from './../../constants';
+import { createChatCompletionMessage } from './../../apis/openai';
 
-let openai: OpenAI | undefined;
-
-// Function to fetch Git ignored files
-function getGitIgnoredFiles(workspaceUri: vscode.Uri, filePaths: string[]): Promise<Set<string>> {
-  return new Promise((resolve, reject) => {
-    const relativePaths = filePaths.map((filePath) =>
-      path.relative(workspaceUri.fsPath, filePath)
-    );
-
-    const gitProcess = spawn('git', ['-C', workspaceUri.fsPath, 'check-ignore', '--stdin']);
-
-    let stdout = '';
-    let stderr = '';
-
-    gitProcess.stdout.on('data', (data) => {
-      stdout += data.toString();
-    });
-
-    gitProcess.stderr.on('data', (data) => {
-      stderr += data.toString();
-    });
-
-    gitProcess.on('close', (code) => {
-      if (code === 0 || code === 1) {
-        // Parse ignored files from stdout
-        const ignoredFiles = new Set(
-          stdout.split('\n').map((line) => line.trim()).filter((line) => line)
-        );
-        resolve(ignoredFiles);
-      } else {
-        reject(new Error(`Git error: ${stderr || 'Unknown error'}`));
-      }
-    });
-
-    gitProcess.on('error', (error) => {
-      reject(error);
-    });
-
-    // Write file paths to the Git process
-    relativePaths.forEach((relativePath) => {
-      gitProcess.stdin.write(`${relativePath}\n`);
-    });
-
-    gitProcess.stdin.end();
-  });
-}
-
-// Function to get non-ignored files (returns an array directly)
-async function getNonIgnoredFiles(workspaceUri: vscode.Uri): Promise<vscode.Uri[]> {
-  try {
-    // Step 1: Get all files in the workspace
-    const allFiles: vscode.Uri[] = await vscode.workspace.findFiles('**/*'); // Retrieve all files in the workspace
-    console.log("TotalFiles:",allFiles.length);
-
-    // Step 2: Fetch the ignored files (including ignored folders and files)
-    const ignoredFiles = await getGitIgnoredFiles(
-      workspaceUri,
-      allFiles.map((file) => file.fsPath)
-    );
-
-    const normalizedIgnoredFiles = new Set(Array.from(ignoredFiles).map((filePath) =>
-      filePath.replace(/\\\\/g, '\\').replace(/"/g, ""))
-    );
-
-    normalizedIgnoredFiles.forEach(
-      x=>{console.log("ignored Files:",x) }
-    );
-
-    // Step 3: Filter out the non-ignored files
-    const nonIgnoredFiles: vscode.Uri[] = [];
-
-    // Iterate over all files
-    for (const file of allFiles) {
-      const relativeFilePath:string = path.relative(workspaceUri.fsPath, file.fsPath).trim().toLowerCase();
-      console.log("relativePaths:",relativeFilePath);
-      //let isIgnored = normalizedIgnoredFiles.has(`${relativeFilePath}`); // Check if the exact file is ignored
-      let isIgnored = [...normalizedIgnoredFiles].some(filePath => filePath.toLowerCase() === relativeFilePath.toLowerCase());
-
-      // If not ignored, add it to the list of non-ignored files
-      if (!isIgnored) {
-        nonIgnoredFiles.push(file);
-      }
-    }
-
-    // Step 4: Return the array of non-ignored files
-    console.log("nonIgnoredFiles:",nonIgnoredFiles.length);
-    return nonIgnoredFiles;
-
-  } catch (error) {
-    console.error(`Error fetching non-ignored files: ${error}`);
-    vscode.window.showErrorMessage(`Error fetching non-ignored files: ${error}`);
-    return []; // Return an empty array in case of error
-  }
-}
-
-// VS Code command implementation
 export default class ReadWorkspaceCommand implements ICommand {
   private context: vscode.ExtensionContext;
   public readonly id = '_vscode-openai.editor.code.readWorkspace';
+  
 
   constructor(context: vscode.ExtensionContext) {
     this.context = context;
@@ -117,36 +33,95 @@ export default class ReadWorkspaceCommand implements ICommand {
     const workspaceFolder = vscode.workspace.workspaceFolders[0];
 
     try {
-      const fileUris = await getNonIgnoredFiles(vscode.Uri.file(workspaceFolder.uri.fsPath));
+      // Step 1: Get all files in the workspace
+      const allFiles: vscode.Uri[] = await vscode.workspace.findFiles('**/*');
+      console.log('Total files in workspace:', allFiles.length);
 
-      if (fileUris.length === 0) {
-        vscode.window.showInformationMessage('No files found in the workspace.');
+      // Step 2: Read .gitignore content (if it exists)
+      const gitignorePath = path.join(workspaceFolder.uri.fsPath, '.gitignore');
+      let gitignoreContent = '';
+      if (fs.existsSync(gitignorePath)) {
+        gitignoreContent = fs.readFileSync(gitignorePath, 'utf8');
+      }
+
+      // Step 3: Prepare the prompt for OpenAI
+      const filePaths = allFiles.map((file) =>
+        path.relative(workspaceFolder.uri.fsPath, file.fsPath)
+      );
+
+      const prompt = `
+
+I want to filter out the list of non ignored files from the  list of all files in a workspace  and the content of the '.gitignore' file provided below. Please return only the files that are not ignored by the patterns in the '.gitignore' file. All the files and folders mentioned in the gitignore content provided should be ignored and only the path of non ignored files should be returned.
+
+List of files:
+${filePaths.join('\n')}
+
+.gitignore contents:
+${gitignoreContent || 'No .gitignore file found'}
+
+Return the non-ignored file paths as a JSON array of strings.
+`;
+      
+      const persona = getSystemPersonas().find(
+        (a) => a.roleName === VSCODE_OPENAI_QP_PERSONA.DEVELOPER
+      )
+
+      if (!persona) {
+        throw new Error('Persona not found.');
+      }
+
+      const conversation: IConversation =
+        await ConversationStorageService.instance.create(persona);
+
+      const chatCompletion: IChatCompletion = {
+        content: prompt,
+        author: 'vscode-openai-editor',
+        timestamp: new Date().toLocaleString(),
+        mine: false,
+        completionTokens: 0,
+        promptTokens: 0,
+        totalTokens: 0,
+      };
+
+      const cfg = ChatCompletionConfig.create(ChatCompletionModelType.INFERENCE);
+
+      conversation.chatMessages.length = 0; // Clear previous messages
+      conversation.chatMessages.push(chatCompletion);
+
+      let filteredFilePaths: string[] = [];
+
+      function messageCallback(_type: string, data: IChatCompletion): void {
+        if (!conversation) return;
+        console.log("Raw response content:", data.content); 
+        
+        try {
+          filteredFilePaths = JSON.parse(data.content.trim());
+        } catch (error) {
+          console.error('Error parsing OpenAI response:', error);
+          vscode.window.showErrorMessage('Failed to parse OpenAI response.');
+        }
+      }
+
+      await createChatCompletionMessage(conversation, cfg, messageCallback);
+
+      console.log("Filetered non ignored File Length is :", filteredFilePaths.length);
+
+      if (filteredFilePaths.length === 0) {
+        vscode.window.showInformationMessage('No non-ignored files found.');
         return;
       }
 
-      // Store the file list in the ExtensionContext
-      await this.context.workspaceState.update('workspaceFiles', fileUris);
+      // Step 5: Convert filtered paths to `vscode.Uri` and store in context
+      const nonIgnoredFiles = filteredFilePaths.map((relativePath) =>
+        vscode.Uri.file(path.join(workspaceFolder.uri.fsPath, relativePath))
+      );
 
-      // Print what's stored in context
-      const storedFiles = this.context.workspaceState.get<vscode.Uri[]>('workspaceFiles');
-      console.log('Stored workspaceFiles in context:', storedFiles);
+      await this.context.workspaceState.update('workspaceFiles', nonIgnoredFiles);
 
-      // Initialize OpenAI client
-      if (!openai) {
-        const apiKey = vscode.workspace
-          .getConfiguration('vscode-openai')
-          .get<string>('apiKey');
-
-        if (!apiKey) {
-          vscode.window.showErrorMessage('OpenAI API key not found in settings.');
-          return;
-        }
-        openai = new OpenAI({ apiKey });
-      }
-
-      vscode.window.showInformationMessage('Workspace files loaded.');
+      vscode.window.showInformationMessage('Workspace files loaded and stored in context.');
     } catch (error) {
-      vscode.window.showErrorMessage(`Error finding files: ${error}`);
+      vscode.window.showErrorMessage(`Error executing command: ${error}`);
+      console.error(error);
     }
   }
 }
