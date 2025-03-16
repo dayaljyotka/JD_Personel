@@ -4,7 +4,7 @@ import { ConversationStorageService } from './../../services/index';
 import {
   IChatCompletion,
   IConversation,
-} from './../../interfaces';
+} from '@app/interfaces';
 import {
   ChatCompletionConfig,
   ChatCompletionModelType,
@@ -64,9 +64,8 @@ export default class ReadWorkspaceCommand implements ICommand {
 
       let filteredFilePaths: string[] = [];
 
-      for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
-        const batch = batches[batchIndex];
-
+      // Helper function to process each batch
+      const processBatch = async (batch: string[], batchIndex: number): Promise<void> => {
         const prompt = `
 I want to filter out the list of non-ignored files from the list of all files in a workspace. The content of the '.gitignore' file is provided below. Please return only the files that are not ignored by the patterns in the '.gitignore' file. All the files and folders mentioned in the gitignore content provided should be ignored, and only the path of non-ignored files should be returned.
 
@@ -97,20 +96,46 @@ Return the non-ignored file paths as a JSON array of strings.
         conversation.chatMessages.length = 0; // Clear previous messages
         conversation.chatMessages.push(chatCompletion);
 
-        function messageCallback(_type: string, data: IChatCompletion): void {
-          if (!conversation) return;
-          console.log(`Raw response for batch ${batchIndex + 1}:`, data.content);
+        return new Promise<void>((resolve, reject) => {
+          function messageCallback(_type: string, data: IChatCompletion): void {
+            if (!conversation) return;
+            console.log(`Raw response for batch ${batchIndex + 1}:`, data.content);
 
-          try {
-            const batchResults = JSON.parse(data.content.trim());
-            filteredFilePaths.push(...batchResults);
-          } catch (error) {
-            console.error(`Error parsing OpenAI response for batch ${batchIndex + 1}:`, error);
-            vscode.window.showErrorMessage(`Failed to parse OpenAI response for batch ${batchIndex + 1}.`);
+            try {
+              const batchResults = JSON.parse(data.content.trim());
+              filteredFilePaths.push(...batchResults);
+              resolve(); // Resolve the batch processing
+            } catch (error) {
+              console.error(`Error parsing OpenAI response for batch ${batchIndex + 1}:`, error);
+              reject(new Error(`Failed to parse OpenAI response for batch ${batchIndex + 1}.`));
+            }
           }
-        }
 
-        await createChatCompletionMessage(conversation, cfg, messageCallback);
+          createChatCompletionMessage(conversation, cfg, messageCallback)
+            .catch((err) => {
+              reject(err); // Reject the batch processing if there's an error
+            });
+        });
+      };
+
+      // Step 4: Process batches in parallel (with a limit on parallelism)
+      const maxParallelBatches = 5; // Limit the number of parallel requests
+      let batchPromises: Promise<void>[] = [];
+      
+      for (let i = 0; i < batches.length; i++) {
+        // Add each batch processing to the promises array
+        batchPromises.push(processBatch(batches[i], i));
+
+        // If we reach the max parallel batches, wait for all of them to finish
+        if (batchPromises.length >= maxParallelBatches) {
+          await Promise.all(batchPromises); // Wait for the current parallel batch group to finish
+          batchPromises = []; // Reset the batch promises array
+        }
+      }
+
+      // Process any remaining batches that didn't fill up to the maxParallelBatches limit
+      if (batchPromises.length > 0) {
+        await Promise.all(batchPromises);
       }
 
       console.log('Filtered non-ignored File Length:', filteredFilePaths.length);
@@ -120,7 +145,7 @@ Return the non-ignored file paths as a JSON array of strings.
         return;
       }
 
-      // Step 4: Convert filtered paths to `vscode.Uri` and store in context
+      // Step 5: Convert filtered paths to `vscode.Uri` and store in context
       const nonIgnoredFiles = filteredFilePaths.map((relativePath) =>
         vscode.Uri.file(path.join(workspaceFolder.uri.fsPath, relativePath))
       );
