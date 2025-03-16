@@ -1,127 +1,96 @@
-import { ICommand } from './../../commands';
-import * as vscode from 'vscode';
+import { env, window } from 'vscode';
 import { ConversationStorageService } from './../../services/index';
-import {
-  IChatCompletion,
-  IConversation,
-} from '@app/interfaces';
+import { IChatCompletion, IConversation, IPersonaOpenAI } from '@app/interfaces';
+import { createChatCompletionMessage } from './../../apis/openai';
 import {
   ChatCompletionConfig,
   ChatCompletionModelType,
 } from './../../services/configuration';
-import * as path from 'path';
-import * as fs from 'fs';
-import { getSystemPersonas } from './../../models';
-import { VSCODE_OPENAI_QP_PERSONA } from './../../constants';
-import { createChatCompletionMessage } from './../../apis/openai';
 
-export default class ReadWorkspaceCommand implements ICommand {
-  private context: vscode.ExtensionContext;
-  public readonly id = '_vscode-openai.editor.code.readWorkspace';
-  
+// Function to process files in batches
+async function processFilesInBatches(
+  persona: IPersonaOpenAI,
+  files: string[],
+  batchSize: number
+): Promise<string[]> {
+  const results: string[] = [];
 
-  constructor(context: vscode.ExtensionContext) {
-    this.context = context;
-  }
-
-  public async execute(): Promise<void> {
-    if (!vscode.workspace.workspaceFolders) {
-      vscode.window.showErrorMessage('No workspace folder opened.');
-      return;
-    }
-
-    const workspaceFolder = vscode.workspace.workspaceFolders[0];
+  for (let i = 0; i < files.length; i += batchSize) {
+    const batch = files.slice(i, i + batchSize); // Get the current batch
+    const prompt = `The following are file paths in the workspace. Please identify which ones are ignored by .gitignore:\n${batch.join(
+      '\n'
+    )}`;
 
     try {
-      // Step 1: Get all files in the workspace
-      const allFiles: vscode.Uri[] = await vscode.workspace.findFiles('**/*');
-      console.log('Total files in workspace:', allFiles.length);
-
-      // Step 2: Read .gitignore content (if it exists)
-      const gitignorePath = path.join(workspaceFolder.uri.fsPath, '.gitignore');
-      let gitignoreContent = '';
-      if (fs.existsSync(gitignorePath)) {
-        gitignoreContent = fs.readFileSync(gitignorePath, 'utf8');
-      }
-
-      // Step 3: Prepare the prompt for OpenAI
-      const filePaths = allFiles.map((file) =>
-        path.relative(workspaceFolder.uri.fsPath, file.fsPath)
-      );
-
-      const prompt = `
-
-I want to filter out the list of non ignored files from the  list of all files in a workspace  and the content of the '.gitignore' file provided below. Please return only the files that are not ignored by the patterns in the '.gitignore' file. All the files and folders mentioned in the gitignore content provided should be ignored and only the path of non ignored files should be returned.
-
-List of files:
-${filePaths.join('\n')}
-
-.gitignore contents:
-${gitignoreContent || 'No .gitignore file found'}
-
-Return the non-ignored file paths as a JSON array of strings.
-`;
-      
-      const persona = getSystemPersonas().find(
-        (a) => a.roleName === VSCODE_OPENAI_QP_PERSONA.DEVELOPER
-      )
-
-      if (!persona) {
-        throw new Error('Persona not found.');
-      }
-
-      const conversation: IConversation =
-        await ConversationStorageService.instance.create(persona);
-
-      const chatCompletion: IChatCompletion = {
-        content: prompt,
-        author: 'vscode-openai-editor',
-        timestamp: new Date().toLocaleString(),
-        mine: false,
-        completionTokens: 0,
-        promptTokens: 0,
-        totalTokens: 0,
-      };
-
-      const cfg = ChatCompletionConfig.create(ChatCompletionModelType.INFERENCE);
-
-      conversation.chatMessages.length = 0; // Clear previous messages
-      conversation.chatMessages.push(chatCompletion);
-
-      let filteredFilePaths: string[] = [];
-
-      function messageCallback(_type: string, data: IChatCompletion): void {
-        if (!conversation) return;
-        console.log("Raw response content:", data.content); 
-        
-        try {
-          filteredFilePaths = JSON.parse(data.content.trim());
-        } catch (error) {
-          console.error('Error parsing OpenAI response:', error);
-          vscode.window.showErrorMessage('Failed to parse OpenAI response.');
-        }
-      }
-
-      await createChatCompletionMessage(conversation, cfg, messageCallback);
-
-      console.log("Filetered non ignored File Length is :", filteredFilePaths.length);
-
-      if (filteredFilePaths.length === 0) {
-        vscode.window.showInformationMessage('No non-ignored files found.');
-        return;
-      }
-
-      // Step 5: Convert filtered paths to `vscode.Uri` and store in context
-      const nonIgnoredFiles = filteredFilePaths.map((relativePath) =>
-        vscode.Uri.file(path.join(workspaceFolder.uri.fsPath, relativePath))
-      );
-
-      await this.context.workspaceState.update('workspaceFiles', nonIgnoredFiles);
-
-      vscode.window.showInformationMessage('Workspace files loaded and stored in context.');
+      const batchResult = await sendPromptToOpenAI(persona, prompt);
+      results.push(...batchResult.split('\n').map((line) => line.trim()));
     } catch (error) {
-      vscode.window.showErrorMessage(`Error executing command: ${error}`);
+      window.showErrorMessage(`Error processing batch ${i / batchSize + 1}: ${error}`);
       console.error(error);
     }
   }
+
+  return results;
 }
+
+// Function to send prompt to OpenAI
+async function sendPromptToOpenAI(
+  persona: IPersonaOpenAI,
+  prompt: string
+): Promise<string> {
+  const conversation: IConversation = await ConversationStorageService.instance.create(persona);
+
+  const chatCompletion: IChatCompletion = {
+    content: prompt,
+    author: 'vscode-openai-editor',
+    timestamp: new Date().toLocaleString(),
+    mine: false,
+    completionTokens: 0,
+    promptTokens: 0,
+    totalTokens: 0,
+  };
+
+  const cfg = ChatCompletionConfig.create(ChatCompletionModelType.INFERENCE);
+
+  conversation.chatMessages.length = 0; // Clear the conversation
+  conversation.chatMessages.push(chatCompletion);
+
+  return new Promise((resolve, reject) => {
+    let result = '';
+    function messageCallback(_type: string, data: IChatCompletion): void {
+      if (data.content) {
+        result = data.content;
+      }
+    }
+
+    createChatCompletionMessage(conversation, cfg, messageCallback)
+      .then(() => resolve(result))
+      .catch((error) => reject(error));
+  });
+}
+
+// Main command to execute
+export const compareResultsToClipboard = async (
+  persona: IPersonaOpenAI | undefined,
+  files: string[] | undefined
+): Promise<void> => {
+  if (!persona || !files || files.length === 0) {
+    window.showErrorMessage('Persona or file list is undefined or empty.');
+    return;
+  }
+
+  const batchSize = 20; // Number of files to process in each batch
+
+  try {
+    const results = await processFilesInBatches(persona, files, batchSize);
+
+    // Save results to clipboard
+    const originalValue = await env.clipboard.readText();
+    await env.clipboard.writeText(results.join('\n'));
+    window.showInformationMessage(`Results saved to clipboard. Processed ${results.length} files.`);
+    await env.clipboard.writeText(originalValue);
+  } catch (error) {
+    window.showErrorMessage(`An error occurred while processing files: ${error}`);
+    console.error(error);
+  }
+};
