@@ -438,7 +438,7 @@
         },
         "vscode-openai.editor.code.filter.nonIgnoredFiles": {
           "type": "string",
-          "default": "Here is a batch of files and the content of the '.gitignore' file. Please filter out any ignored files based on the '.gitignore' content. Return only the non-ignored file paths as a JSON array of strings.\n.gitignore contents:${gitignoreContent || 'No .gitignore file found'}\nBatch of files:\n${batch}\nIn the response, only return the non-ignored file paths as a JSON array of strings. If the array is blank because the batch has no non-ignored files, return an empty array without any additional message.",
+          "default": "Here is a batch of files and the content of the '.gitignore' file. Please filter out any ignored files based on the '.gitignore' content. Return only the non-ignored file paths as a JSON array of strings.\n.gitignore contents:${gitignoreContent}\nBatch of files:\n${batch}\nIn the response, only return the non-ignored file paths as a JSON array of strings. If the array is blank because the batch has no non-ignored files, return an empty array without any additional message.",
           "editPresentation": "multilineText",
           "markdownDescription": "This prompt is designed to find list of non ignored files in a given workspace",
           "order": 304
