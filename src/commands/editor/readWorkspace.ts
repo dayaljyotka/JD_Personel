@@ -16,6 +16,7 @@ import { VSCODE_OPENAI_QP_PERSONA } from './../../constants';
 import { createChatCompletionMessage } from './../../apis/openai';
 import ignore from 'ignore'; // Install ignore package
 import { StatusBarServiceProvider } from './../../apis/vscode';
+import { getEditorPrompt } from '@app/utilities/editor';
 
 export default class ReadWorkspaceCommand implements ICommand {
   private context: vscode.ExtensionContext;
@@ -73,20 +74,16 @@ export default class ReadWorkspaceCommand implements ICommand {
       let finalFilteredFilePaths: string[] = [];
 
       const processBatch = async (batch: string[], batchIndex: number): Promise<void> => {
-        const prompt = `
-Here is a batch of files and the content of the '.gitignore' file. Please filter out any ignored files based on the '.gitignore' content. Return only the non-ignored file paths as a JSON array of strings.
-
-.gitignore contents:
-${gitignoreContent || 'No .gitignore file found'}
-
-Batch of files:
-${batch.join('\n')}
-
-In the response, only return the non-ignored file paths as a JSON array of strings. If the array is blank because the batch has no non-ignored files, return an empty array without any additional message.
-        `;
-
+      const filteredPrompt = await getEditorPrompt('editor.code.filter.nonIgnoredFiles');  
+      const prompt = filteredPrompt?.replace('${gitignoreContent}', gitignoreContent || 'No .gitignore file found')
+      .replace('${batch}', batch.join('\n'));
         const conversation: IConversation =
           await ConversationStorageService.instance.create(persona);
+
+      if (!persona || !prompt) {
+        vscode.window.showErrorMessage('Persona or prompt is undefined.')
+      return
+     }
 
         const chatCompletion: IChatCompletion = {
           content: prompt,

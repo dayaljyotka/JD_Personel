@@ -52,6 +52,7 @@
     "@arbs.io/asset-extractor-wasm": "^0.1.3",
     "@vscode/extension-telemetry": "^0.9.8",
     "crypto-js": "^4.2.0",
+    "ignore": "^7.0.3",
     "nodemon": "^3.1.9",
     "openai": "^4.85.4",
     "uuid": "^11.1.0"
@@ -435,16 +436,16 @@
           "markdownDescription": "This prompt is designed to find and fix bugs within the `source code`\n- Author: **Ed Linden**",
           "order": 303
         },
+        "vscode-openai.editor.code.filter.nonIgnoredFiles": {
+          "type": "string",
+          "default": "Here is a batch of files and the content of the '.gitignore' file. Please filter out any ignored files based on the '.gitignore' content. Return only the non-ignored file paths as a JSON array of strings.\n.gitignore contents:${gitignoreContent || 'No .gitignore file found'}\nBatch of files:\n${batch}\nIn the response, only return the non-ignored file paths as a JSON array of strings. If the array is blank because the batch has no non-ignored files, return an empty array without any additional message.",
+          "editPresentation": "multilineText",
+          "markdownDescription": "This prompt is designed to find list of non ignored files in a given workspace",
+          "order": 304
+        },
         "vscode-openai.editor.code.optimize": {
           "type": "string",
           "default": "I am working with a program written in #{language} and need assistance in optimizing its performance. Please analyze the provided source code and suggest optimizations to reduce the number of operations during execution. The optimizations should maintain the original functionality of the code.\n\nThe response should be in plain text format, suitable for direct use as a source file. It must strictly adhere to the syntax and conventions of #{language} and only include valid #{language} source code. The optimized code should be complete and ready for compilation or execution in a suitable environment.\n\nHere is the source code that needs optimization:\n```#{language}\n#{source_code}\n```",
-          "editPresentation": "multilineText",
-          "markdownDescription": "This prompt is designed to find inefficiencies and resolve them within the `source code`\n- Author: **vscode-openai**",
-          "order": 304
-        },
-        "vscode-openai.editor.code.optimizeFolder": {
-          "type": "string",
-          "default": "I am optimizing folder with a program written in #{language} and need assistance in optimizing its performance.\n\nHere is the source code that needs optimization:\n```#{language}\n#{source_code}\n```",
           "editPresentation": "multilineText",
           "markdownDescription": "This prompt is designed to find inefficiencies and resolve them within the `source code`\n- Author: **vscode-openai**",
           "order": 304
