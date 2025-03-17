@@ -72,4 +72,9 @@ export default class StatusBarServiceProvider {
     )
     this.statusBarItem.show()
   }
+  public clearStatusBarInformation() {
+    if (this.statusBarItem) {
+      this.statusBarItem.hide()
+    }
+  }
 }

@@ -15,6 +15,7 @@ import { getSystemPersonas } from './../../models';
 import { VSCODE_OPENAI_QP_PERSONA } from './../../constants';
 import { createChatCompletionMessage } from './../../apis/openai';
 import ignore from 'ignore'; // Install ignore package
+import { StatusBarServiceProvider } from './../../apis/vscode';
 
 export default class ReadWorkspaceCommand implements ICommand {
   private context: vscode.ExtensionContext;
@@ -64,7 +65,7 @@ export default class ReadWorkspaceCommand implements ICommand {
 
       // Step 4: Process the filtered files in batches
       const batchSize = 20;
-      const batches = [];
+      const batches: string[][] = [];
       for (let i = 0; i < filteredPaths.length; i += batchSize) {
         batches.push(filteredPaths.slice(i, i + batchSize));
       }
@@ -81,7 +82,7 @@ ${gitignoreContent || 'No .gitignore file found'}
 Batch of files:
 ${batch.join('\n')}
 
-In the response, only return the non-ignored file paths as a JSON array of strings. In cas ethe array is blank if the batch being processed has no non-ignored files, then only retrun a blank array in response, no other message.
+In the response, only return the non-ignored file paths as a JSON array of strings. If the array is blank because the batch has no non-ignored files, return an empty array without any additional message.
         `;
 
         const conversation: IConversation =
@@ -119,9 +120,40 @@ In the response, only return the non-ignored file paths as a JSON array of strin
         });
       };
 
-      const batchPromises = batches.map((batch, index) => processBatch(batch, index));
-      await Promise.all(batchPromises);
+      // Step 5: Show spinner and process batches
+      StatusBarServiceProvider.instance.showStatusBarInformation(
+        'sync~spin',
+        'Processing workspace files...'
+      );
 
+      let completedBatches = 0;
+
+      await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: 'Processing Workspace Files',
+          cancellable: false,
+        },
+        async (progress) => {
+          const batchPromises = batches.map((batch, index) =>
+            processBatch(batch, index).then(() => {
+              completedBatches++;
+              progress.report({
+                message: `Processed batch ${completedBatches} of ${batches.length}`,
+              });
+
+              StatusBarServiceProvider.instance.showStatusBarInformation(
+                'sync~spin',
+                `Processing batch ${completedBatches} of ${batches.length}`
+              );
+            })
+          );
+
+          await Promise.all(batchPromises);
+        }
+      );
+
+      StatusBarServiceProvider.instance.clearStatusBarInformation();
       console.log('Filtered non-ignored File Length:', finalFilteredFilePaths.length);
 
       if (finalFilteredFilePaths.length === 0) {
@@ -129,7 +161,7 @@ In the response, only return the non-ignored file paths as a JSON array of strin
         return;
       }
 
-      // Step 5: Convert filtered paths to `vscode.Uri` and store in context
+      // Step 6: Convert filtered paths to `vscode.Uri` and store in context
       const nonIgnoredFiles = finalFilteredFilePaths.map((relativePath) =>
         vscode.Uri.file(path.join(workspaceFolder.uri.fsPath, relativePath))
       );
@@ -138,6 +170,7 @@ In the response, only return the non-ignored file paths as a JSON array of strin
 
       vscode.window.showInformationMessage('Workspace files loaded and stored in context.');
     } catch (error) {
+      StatusBarServiceProvider.instance.clearStatusBarInformation();
       vscode.window.showErrorMessage(`Error executing command: ${error}`);
       console.error(error);
     }
