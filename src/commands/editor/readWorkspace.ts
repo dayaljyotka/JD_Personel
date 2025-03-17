@@ -4,7 +4,7 @@ import { ConversationStorageService } from './../../services/index';
 import {
   IChatCompletion,
   IConversation,
-} from '@app/interfaces';
+} from './../../interfaces';
 import {
   ChatCompletionConfig,
   ChatCompletionModelType,
@@ -75,7 +75,7 @@ ${batch.join('\n')}
 .gitignore contents:
 ${gitignoreContent || 'No .gitignore file found'}
 
-Return the non-ignored file paths as a JSON array of strings.
+In the response, only return the non-ignored file paths as a JSON array of strings. In cas ethe array is blank if the batch being processed has no non-ignored files, then only retrun a blank array in response, no other message.
         `;
 
         const conversation: IConversation =
@@ -119,7 +119,7 @@ Return the non-ignored file paths as a JSON array of strings.
       };
 
       // Step 4: Process batches in parallel (with a limit on parallelism)
-      const maxParallelBatches = 5; // Limit the number of parallel requests
+      const maxParallelBatches = 6; // Limit the number of parallel requests
       let batchPromises: Promise<void>[] = [];
       
       for (let i = 0; i < batches.length; i++) {
