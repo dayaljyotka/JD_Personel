@@ -16,7 +16,7 @@ import { VSCODE_OPENAI_QP_PERSONA } from './../../constants';
 import { createChatCompletionMessage } from './../../apis/openai';
 import ignore from 'ignore'; // Install ignore package
 import { StatusBarServiceProvider } from './../../apis/vscode';
-import { getEditorPrompt } from '@app/utilities/editor';
+import { getEditorPrompt } from './../../utilities/editor';
 
 export default class ReadWorkspaceCommand implements ICommand {
   private context: vscode.ExtensionContext;
